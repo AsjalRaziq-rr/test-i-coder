@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Code Editor with AI Chat</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #f0f6fc; height: 100vh; overflow: hidden; }
+        
+        .container { display: flex; height: 100vh; transition: all 0.3s ease; }
+        .container.preview-open { margin-right: 50vw; }
+        
+        @media (max-width: 768px) {
+            .container { flex-direction: column; }
+            .file-explorer { width: 100%; height: 200px; border-right: none; border-bottom: 1px solid #30363d; }
+            .chat-panel { width: 100%; bottom: 0; right: 0; }
+            .terminal-panel { left: 0; right: 0; }
+            .preview-panel.open { width: 100vw; }
+            .container.preview-open { margin-right: 0; }
+            .chat-toggle { right: 24px; bottom: 90px; }
+            .terminal-toggle { right: 24px; bottom: 24px; }
+        }
+        .editor-panel { flex: 1; display: flex; flex-direction: column; }
+        .toolbar { background: #161b22; padding: 12px; border-bottom: 1px solid #30363d; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+        .file-tabs { display: flex; gap: 2px; }
+        .tab { background: #21262d; padding: 10px 16px; border-radius: 6px 6px 0 0; cursor: pointer; border: 1px solid #30363d; transition: all 0.2s ease; font-weight: 500; }
+        .tab.active { background: #0d1117; border-bottom: 1px solid #0d1117; color: #58a6ff; }
+        .tab:hover:not(.active) { background: #30363d; transform: translateY(-2px); }
+        .tab { transform: translateY(0); }
+        
+        .editor-container { flex: 1; position: relative; }
+        .CodeMirror { height: 100%; font-size: 14px; background: #0d1117 !important; color: #f0f6fc !important; }
+        .CodeMirror-gutters { background: #161b22 !important; border-right: 1px solid #30363d !important; }
+        .CodeMirror-linenumber { color: #7d8590 !important; }
+        .CodeMirror-cursor { border-left: 2px solid #58a6ff !important; }
+        .CodeMirror-selected { background: #264f78 !important; }
+        .CodeMirror-line { background: transparent !important; }
+        
+        .terminal-toggle { position: fixed; bottom: 24px; right: 24px; background: linear-gradient(135deg, #238636, #2ea043); color: white; border: none; padding: 14px; border-radius: 50%; cursor: pointer; z-index: 1000; box-shadow: 0 4px 12px rgba(35, 134, 54, 0.4); transition: all 0.2s ease; }
+        .terminal-toggle:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(35, 134, 54, 0.5); }
+        .chat-toggle { position: fixed; bottom: 24px; right: 88px; background: linear-gradient(135deg, #1f6feb, #388bfd); color: white; border: none; padding: 14px; border-radius: 50%; cursor: pointer; z-index: 1000; box-shadow: 0 4px 12px rgba(31, 111, 235, 0.4); transition: all 0.2s ease; }
+        .chat-toggle:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(31, 111, 235, 0.5); }
+        
+        .terminal-panel { position: fixed; bottom: 0; left: 0; right: 0; height: 0; background: #0d1117; border-top: 1px solid #30363d; transition: height 0.3s ease; overflow: hidden; z-index: 998; box-shadow: 0 -4px 12px rgba(0,0,0,0.3); }
+        .terminal-panel.open { height: 40vh; }
+        
+        @media (max-width: 768px) {
+            .terminal-panel.open { height: 50vh; }
+            .chat-panel.open { height: 70vh; }
+        }
+        
+        .chat-panel { position: fixed; bottom: 0; right: 0; width: 420px; height: 0; background: #161b22; border-left: 1px solid #30363d; transition: height 0.3s ease; overflow: hidden; z-index: 999; box-shadow: -4px 0 12px rgba(0,0,0,0.3); max-width: calc(100vw - 20px); display: flex; flex-direction: column; }
+        .chat-panel.open { height: 60vh; }
+        
+        .terminal-header { background: #161b22; padding: 12px 16px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; color: #f0f6fc; font-weight: 600; }
+        .terminal-content { background: #0d1117; }
+        .terminal-input input { background: #21262d; border: 1px solid #30363d; color: #f0f6fc; }
+        .terminal-input button { background: linear-gradient(135deg, #238636, #2ea043); }
+        .terminal-content { flex: 1; padding: 10px; overflow-y: auto; max-height: calc(40vh - 100px); font-family: 'Courier New', monospace; color: #00ff00; }
+        .terminal-input { display: flex; padding: 10px; border-top: 1px solid #3e3e42; }
+        .terminal-input input { flex: 1; background: #3c3c3c; border: 1px solid #555; color: #00ff00; padding: 8px; border-radius: 4px; font-family: 'Courier New', monospace; }
+        .terminal-input button { background: #007acc; color: white; border: none; padding: 8px 15px; margin-left: 5px; border-radius: 4px; cursor: pointer; }
+        .webcontainer-frame { width: 100%; height: 300px; border: 1px solid #3e3e42; border-radius: 4px; margin-top: 10px; display: none; }
+        
+        .chat-header { background: #2d2d30; padding: 10px; border-bottom: 1px solid #3e3e42; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        .model-selector { background: #3c3c3c; border: 1px solid #555; color: white; padding: 5px; border-radius: 3px; margin-left: 10px; }
+        .chat-messages { flex: 1; padding: 10px; overflow-y: auto; max-height: calc(60vh - 140px); }
+        .message { margin-bottom: 10px; padding: 8px; border-radius: 4px; }
+        .message.user { background: #0e639c; margin-left: 20px; }
+        .message.ai { background: #1a1a1a; margin-right: 20px; }
+        
+        .chat-input { display: flex; padding: 10px; border-top: 1px solid #3e3e42; flex-shrink: 0; }
+        .chat-input input { flex: 1; background: #3c3c3c; border: 1px solid #555; color: white; padding: 8px; border-radius: 4px; }
+        .chat-input button { background: #007acc; color: white; border: none; padding: 8px 15px; margin-left: 5px; border-radius: 4px; cursor: pointer; }
+        
+        .file-explorer { width: 280px; background: #161b22; border-right: 1px solid #30363d; padding: 16px; overflow-y: auto; }
+        .file-explorer h3 { color: #f0f6fc; font-weight: 600; margin-bottom: 12px; font-size: 14px; }
+        .file-item { padding: 8px 12px; cursor: pointer; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s ease; }
+        .file-item:hover { background: #21262d; transform: translateX(4px); }
+        .file-item { transform: translateX(0); }
+        .delete-btn { background: #da3633; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; opacity: 0.8; transition: all 0.2s ease; }
+        .delete-btn:hover { background: #f85149; opacity: 1; }
+        
+        .preview-panel { position: fixed; top: 0; right: 0; width: 0; height: 100vh; background: #0d1117; border-left: 1px solid #30363d; transition: width 0.3s ease; overflow: hidden; z-index: 1001; box-shadow: -4px 0 12px rgba(0,0,0,0.3); }
+        .preview-panel.open { width: 50vw; }
+        
+        @media (max-width: 768px) {
+            .preview-panel.open { width: 100vw; left: 0; border-left: none; }
+        }
+        .preview-header { background: #161b22; padding: 12px 16px; border-bottom: 1px solid #30363d; display: flex; justify-content: space-between; align-items: center; color: #f0f6fc; font-weight: 600; }
+        .preview-content { width: 100%; height: calc(100vh - 60px); border: none; background: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="file-explorer">
+            <h3>Files</h3>
+            <div id="fileList"></div>
+            <button onclick="createFile()" style="margin-top: 12px; background: linear-gradient(135deg, #1f6feb, #388bfd); color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.2s ease; width: 100%;">+ New File</button>
+            <button onclick="previewApp()" style="margin-top: 8px; background: linear-gradient(135deg, #238636, #2ea043); color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: 500; transition: all 0.2s ease;">🔍 Preview App</button>
+        </div>
+        
+        <div class="editor-panel">
+            <div class="toolbar">
+                <div class="file-tabs" id="fileTabs"></div>
+            </div>
+            <div class="editor-container">
+                <textarea id="editor"></textarea>
+            </div>
+        </div>
+    </div>
+    
+    <button class="terminal-toggle" onclick="toggleTerminal()">⚡</button>
+    <button class="chat-toggle" onclick="toggleChat()">💬</button>
+    
+    <div class="terminal-panel" id="terminalPanel">
+        <div class="terminal-header">
+            <span>Terminal</span>
+            <button onclick="toggleTerminal()" style="background: none; border: none; color: white; cursor: pointer;">✕</button>
+        </div>
+        <div class="terminal-content" id="terminalOutput">Welcome to Terminal. Type commands and press Enter to execute.
+
+</div>
+        <div class="terminal-input">
+            <span style="color: #00ff00; margin-right: 10px;">$</span>
+            <input type="text" id="terminalInput" placeholder="Enter command..." onkeypress="handleTerminalKeypress(event)">
+            <button onclick="executeTerminalCommand()">Run</button>
+        </div>
+    </div>
+    
+    <div class="chat-panel" id="chatPanel">
+        <div class="chat-header">
+            <span>AI Assistant</span>
+            <div>
+                <select id="modelSelector" class="model-selector" onchange="switchModel()">
+                    <option value="groq">Groq (Llama)</option>
+                    <option value="codestral">Codestral</option>
+                    <option value="openrouter">OpenRouter (Custom)</option>
+                </select>
+                <div id="openRouterConfig" style="display: none; margin-top: 6px; font-size: 12px;">
+                    <input type="text" id="apiKeyInput" placeholder="API Key" style="width: 100%; margin-bottom: 3px; padding: 3px; background: #21262d; border: 1px solid #30363d; color: #f0f6fc; border-radius: 3px; font-size: 11px;">
+                    <input type="text" id="modelNameInput" placeholder="Model (e.g. anthropic/claude-3-sonnet)" style="width: 100%; padding: 3px; background: #21262d; border: 1px solid #30363d; color: #f0f6fc; border-radius: 3px; font-size: 11px;">
+                    <button onclick="configureOpenRouter()" style="margin-top: 3px; background: #238636; color: white; border: none; padding: 3px 6px; border-radius: 3px; cursor: pointer; font-size: 10px; width: 100%;">Configure</button>
+                </div>
+                <button onclick="toggleChat()" style="background: none; border: none; color: white; cursor: pointer; margin-left: 10px;">✕</button>
+            </div>
+        </div>
+        <div class="chat-messages" id="chatMessages"></div>
+        <div class="chat-input">
+            <input type="text" id="chatInput" placeholder="Ask AI to help with code..." onkeypress="handleChatKeypress(event)">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+    
+    <div class="preview-panel" id="previewPanel">
+        <div class="preview-header">
+            <span>Preview</span>
+            <div>
+                <button onclick="openInNewTab()" style="background: linear-gradient(135deg, #1f6feb, #388bfd); color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; margin-right: 12px; font-weight: 500; transition: all 0.2s ease;">Open in New Tab</button>
+                <button onclick="togglePreview()" style="background: #21262d; border: none; color: #f0f6fc; cursor: pointer; padding: 6px 8px; border-radius: 4px; transition: all 0.2s ease;">✕</button>
+            </div>
+        </div>
+        <iframe id="previewFrame" class="preview-content"></iframe>
+    </div>
+
+    <script>
+        let editor;
+        let currentFile = null;
+        let files = {};
+        
+        // Initialize CodeMirror
+        editor = CodeMirror.fromTextArea(document.getElementById('editor'), {
+            lineNumbers: true,
+            theme: 'default',
+            mode: 'javascript',
+            indentUnit: 2,
+            tabSize: 2,
+            indentWithTabs: false
+        });
+        
+        // Terminal functionality
+        function toggleTerminal() {
+            const panel = document.getElementById('terminalPanel');
+            panel.classList.toggle('open');
+        }
+        
+        function handleTerminalKeypress(event) {
+            if (event.key === 'Enter') {
+                executeTerminalCommand();
+            }
+        }
+        
+        async function executeTerminalCommand() {
+            const input = document.getElementById('terminalInput');
+            const output = document.getElementById('terminalOutput');
+            const command = input.value.trim();
+            
+            if (!command) return;
+            
+            output.textContent += `$ ${command}\n`;
+            input.value = '';
+            
+            // Check if it's a dev server command
+            const isDevServer = command.includes('npm start') || 
+                               command.includes('http.server') || 
+                               command.includes('serve') ||
+                               command.includes('python -m http.server') ||
+                               command.includes('python3 -m http.server');
+            
+            if (isDevServer) {
+                try {
+                    output.textContent += 'Starting dev server in WebContainer...\n';
+                    
+                    const { WebContainer } = await import('https://unpkg.com/@webcontainer/api@latest/dist/index.js');
+                    
+                    // Reuse existing instance or create new one
+                    let webcontainer = window.webcontainerInstance;
+                    if (!webcontainer) {
+                        webcontainer = await WebContainer.boot();
+                        window.webcontainerInstance = webcontainer;
+                    }
+                    
+                    // Copy current files to WebContainer
+                    const filesResponse = await fetch('/api/files');
+                    const { files } = await filesResponse.json();
+                    
+                    // Mount files in WebContainer
+                    const fileTree = {};
+                    for (const file of files) {
+                        if (file.type === 'file') {
+                            const response = await fetch(`/api/files/${file.path}`);
+                            const { content } = await response.json();
+                            fileTree[file.path] = { file: { contents: content } };
+                        }
+                    }
+                    
+                    await webcontainer.mount(fileTree);
+                    
+                    // Start dev server
+                    if (command.includes('npm start')) {
+                        await webcontainer.spawn('npm', ['start']);
+                    } else {
+                        await webcontainer.spawn('python3', ['-m', 'http.server', '8000']);
+                    }
+                    
+                    // Show WebContainer URL
+                    webcontainer.on('server-ready', (port, url) => {
+                        output.textContent += `Server running at: ${url}\n`;
+                        output.textContent += `Click to open: ${url}\n`;
+                        output.scrollTop = output.scrollHeight;
+                    });
+                    
+                } catch (error) {
+                    output.textContent += `WebContainer Error: ${error.message}\n`;
+                    output.scrollTop = output.scrollHeight;
+                }
+            } else {
+                // Regular server-side command
+                try {
+                    const response = await fetch('/api/terminal', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ command })
+                    });
+                    
+                    const result = await response.text();
+                    output.textContent += result + '\n';
+                    output.scrollTop = output.scrollHeight;
+                } catch (error) {
+                    output.textContent += `Error: ${error.message}\n`;
+                    output.scrollTop = output.scrollHeight;
+                }
+            }
+        }
+        
+        // Model switching
+        async function switchModel() {
+            const selector = document.getElementById('modelSelector');
+            const model = selector.value;
+            const configDiv = document.getElementById('openRouterConfig');
+            
+            if (model === 'openrouter') {
+                configDiv.style.display = 'block';
+            } else {
+                configDiv.style.display = 'none';
+                try {
+                    await fetch('/api/switch-model', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ model })
+                    });
+                    addMessage(`Switched to ${model.toUpperCase()} model`, 'ai');
+                } catch (error) {
+                    addMessage(`Error switching model: ${error.message}`, 'ai');
+                }
+            }
+        }
+        
+        async function configureOpenRouter() {
+            const apiKey = document.getElementById('apiKeyInput').value;
+            const modelName = document.getElementById('modelNameInput').value;
+            
+            if (!apiKey || !modelName) {
+                addMessage('Please enter both API key and model name', 'ai');
+                return;
+            }
+            
+            try {
+                await fetch('/api/switch-model', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: 'openrouter', apiKey, modelName })
+                });
+                addMessage(`Configured OpenRouter with ${modelName}`, 'ai');
+            } catch (error) {
+                addMessage(`Error configuring OpenRouter: ${error.message}`, 'ai');
+            }
+        }
+        
+        // Load current model on page load
+        async function loadCurrentModel() {
+            try {
+                const response = await fetch('/api/current-model');
+                const data = await response.json();
+                document.getElementById('modelSelector').value = data.model;
+            } catch (error) {
+                console.error('Error loading current model:', error);
+            }
+        }
+        
+        // Chat functionality
+        function toggleChat() {
+            const panel = document.getElementById('chatPanel');
+            panel.classList.toggle('open');
+        }
+        
+        function handleChatKeypress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+        
+        async function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            if (!message) return;
+            
+            addMessage(message, 'user');
+            input.value = '';
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message,
+                        currentFile: currentFile,
+                        fileContent: currentFile ? editor.getValue() : null,
+                        files: Object.keys(files)
+                    })
+                });
+                
+                const result = await response.json();
+                addMessage(result.response, 'ai');
+                
+                // Handle tool results
+                if (result.fileUpdated) {
+                    loadFile(result.fileUpdated);
+                }
+                if (result.filesChanged) {
+                    loadFileList();
+                }
+            } catch (error) {
+                addMessage('Error: ' + error.message, 'ai');
+            }
+        }
+        
+        function addMessage(text, type) {
+            const messages = document.getElementById('chatMessages');
+            const div = document.createElement('div');
+            div.className = `message ${type}`;
+            div.textContent = text;
+            messages.appendChild(div);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        // File management
+        async function loadFileList() {
+            try {
+                const response = await fetch('/api/files');
+                const data = await response.json();
+                displayFiles(data.files);
+            } catch (error) {
+                console.error('Error loading files:', error);
+            }
+        }
+        
+        function displayFiles(fileList) {
+            const container = document.getElementById('fileList');
+            container.innerHTML = '';
+            
+            function renderFiles(files, indent = 0) {
+                files.forEach(file => {
+                    const div = document.createElement('div');
+                    div.className = 'file-item';
+                    div.style.paddingLeft = (indent * 15) + 'px';
+                    
+                    const nameSpan = document.createElement('span');
+                    
+                    if (file.type === 'directory') {
+                        nameSpan.textContent = '📁 ' + file.name;
+                        nameSpan.style.cursor = 'pointer';
+                        nameSpan.onclick = () => toggleFolder(file.path);
+                    } else {
+                        nameSpan.textContent = '📄 ' + file.name;
+                        nameSpan.onclick = () => loadFile(file.path);
+                    }
+                    
+                    div.appendChild(nameSpan);
+                    
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.className = 'delete-btn';
+                    deleteBtn.textContent = '×';
+                    deleteBtn.onclick = (e) => {
+                        e.stopPropagation();
+                        deleteFile(file.path);
+                    };
+                    div.appendChild(deleteBtn);
+                    
+                    container.appendChild(div);
+                    
+                    if (file.children) {
+                        const childContainer = document.createElement('div');
+                        childContainer.id = 'folder-' + file.path;
+                        childContainer.style.display = 'none';
+                        container.appendChild(childContainer);
+                        
+                        function renderChildren(children) {
+                            children.forEach(child => {
+                                const childDiv = document.createElement('div');
+                                childDiv.className = 'file-item';
+                                childDiv.style.paddingLeft = ((indent + 1) * 15) + 'px';
+                                
+                                const childSpan = document.createElement('span');
+                                if (child.type === 'directory') {
+                                    childSpan.textContent = '📁 ' + child.name;
+                                    childSpan.onclick = () => toggleFolder(child.path);
+                                } else {
+                                    childSpan.textContent = '📄 ' + child.name;
+                                    childSpan.onclick = () => loadFile(child.path);
+                                }
+                                
+                                childDiv.appendChild(childSpan);
+                                
+                                const childDeleteBtn = document.createElement('button');
+                                childDeleteBtn.className = 'delete-btn';
+                                childDeleteBtn.textContent = '×';
+                                childDeleteBtn.onclick = (e) => {
+                                    e.stopPropagation();
+                                    deleteFile(child.path);
+                                };
+                                childDiv.appendChild(childDeleteBtn);
+                                
+                                childContainer.appendChild(childDiv);
+                                
+                                if (child.children) {
+                                    const nestedContainer = document.createElement('div');
+                                    nestedContainer.id = 'folder-' + child.path;
+                                    nestedContainer.style.display = 'none';
+                                    childContainer.appendChild(nestedContainer);
+                                }
+                            });
+                        }
+                        
+                        renderChildren(file.children);
+                    }
+                });
+            }
+            
+            renderFiles(fileList);
+        }
+        
+        function toggleFolder(folderPath) {
+            const container = document.getElementById('folder-' + folderPath);
+            if (container) {
+                container.style.display = container.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+        
+        async function deleteFile(filePath) {
+            if (!confirm(`Delete ${filePath}?`)) return;
+            
+            try {
+                await fetch(`/api/files/${filePath}`, { method: 'DELETE' });
+                loadFileList();
+            } catch (error) {
+                alert('Error deleting: ' + error.message);
+            }
+        }
+        
+        async function loadFile(filePath) {
+            try {
+                const response = await fetch(`/api/files/${filePath}`);
+                const data = await response.json();
+                
+                files[filePath] = data.content;
+                currentFile = filePath;
+                editor.setValue(data.content);
+                
+                // Update file mode based on extension
+                const ext = filePath.split('.').pop();
+                const mode = ext === 'py' ? 'python' : 'javascript';
+                editor.setOption('mode', mode);
+                
+                updateTabs();
+            } catch (error) {
+                console.error('Error loading file:', error);
+            }
+        }
+        
+        async function saveFile() {
+            if (!currentFile) return;
+            
+            const content = editor.getValue();
+            files[currentFile] = content;
+            
+            try {
+                await fetch('/api/files', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filePath: currentFile, content })
+                });
+            } catch (error) {
+                console.error('Error saving file:', error);
+            }
+        }
+        
+        function createFile() {
+            const name = prompt('File name:');
+            if (name) {
+                files[name] = '';
+                currentFile = name;
+                editor.setValue('');
+                updateTabs();
+                saveFile();
+                loadFileList();
+            }
+        }
+        
+        function updateTabs() {
+            const container = document.getElementById('fileTabs');
+            container.innerHTML = '';
+            
+            Object.keys(files).forEach(filePath => {
+                const tab = document.createElement('div');
+                tab.className = 'tab' + (filePath === currentFile ? ' active' : '');
+                tab.textContent = filePath.split('/').pop();
+                tab.onclick = () => loadFile(filePath);
+                container.appendChild(tab);
+            });
+        }
+        
+        // Auto-save on change
+        editor.on('change', () => {
+            if (currentFile) {
+                files[currentFile] = editor.getValue();
+                setTimeout(saveFile, 1000);
+            }
+        });
+        
+        function previewApp() {
+            // Look for index.html or first HTML file
+            const htmlFile = Object.keys(files).find(f => f.endsWith('.html')) || 'index.html';
+            const previewUrl = `/workspace/${htmlFile}`;
+            
+            // Open preview panel with container slide
+            const panel = document.getElementById('previewPanel');
+            const frame = document.getElementById('previewFrame');
+            const container = document.querySelector('.container');
+            
+            frame.src = previewUrl;
+            panel.classList.add('open');
+            container.classList.add('preview-open');
+        }
+        
+        function togglePreview() {
+            const panel = document.getElementById('previewPanel');
+            const container = document.querySelector('.container');
+            
+            panel.classList.toggle('open');
+            container.classList.toggle('preview-open');
+        }
+        
+        function openInNewTab() {
+            const frame = document.getElementById('previewFrame');
+            if (frame.src) {
+                window.open(frame.src, '_blank');
+            }
+        }
+        
+        // Initialize
+        loadFileList();
+        loadCurrentModel();
+    </script>
+</body>
+</html>

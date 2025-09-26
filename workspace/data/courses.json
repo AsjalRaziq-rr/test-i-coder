@@ -1,0 +1,23 @@
+[
+  {
+    "id": 1,
+    "title": "Introduction to React",
+    "description": "Learn the basics of React.js",
+    "price": 49.99,
+    "image": "https://via.placeholder.com/300x200?text=React"
+  },
+  {
+    "id": 2,
+    "title": "Advanced JavaScript",
+    "description": "Master advanced concepts in JS",
+    "price": 59.99,
+    "image": "https://via.placeholder.com/300x200?text=JS"
+  },
+  {
+    "id": 3,
+    "title": "Node.js Fundamentals",
+    "description": "Build backend with Node",
+    "price": 69.99,
+    "image": "https://via.placeholder.com/300x200?text=Node"
+  }
+]
